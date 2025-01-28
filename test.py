@@ -1,5 +1,5 @@
 import time
-from sx126x import SX126x  # Make sure you have the correct library installed
+import SX126x  # Make sure you have the correct library installed
 
 def configure_lora():
     """Configures the LoRa module with basic settings."""
