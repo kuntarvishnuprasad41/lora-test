@@ -3,7 +3,7 @@ import sx126x  # Make sure you have the correct library installed
 
 def configure_lora():
     """Configures the LoRa module with basic settings."""
-    lora = SX126x()
+    lora = sx126x()
     try:
         lora.begin()
         lora.set_spreading_factor(7)
