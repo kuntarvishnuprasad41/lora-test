@@ -1,62 +1,62 @@
-import spidev
 import time
-from sx126x import SX126x
-
-def detect_lora_hat():
-    try:
-        # Open SPI bus
-        spi = spidev.SpiDev()
-        spi.open(0, 0)  # Bus 0, Device 0
-        spi.max_speed_hz = 1000000
-        
-        # Perform a simple read to test connection
-        response = spi.xfer2([0x00])  # Simple read command
-        
-        print("✅ SX1262 LoRa HAT Detected Successfully!")
-        print(f"Initial SPI Response: {response}")
-        
-        # Close SPI connection
-        spi.close()
-        return True
-    except Exception as e:
-        print(f"❌ Error detecting LoRa HAT: {e}")
-        return False
+from sx126x import SX126x  # Make sure you have the correct library installed
 
 def configure_lora():
-    # LoRa configuration
+    """Configures the LoRa module with basic settings."""
     lora = SX126x()
     try:
         lora.begin()
-        lora.set_frequency(868.0)  # Adjust for your region (868 MHz for EU, 915 MHz for US, etc.)
         lora.set_spreading_factor(7)
         lora.set_bandwidth(125)
         lora.set_coding_rate(5)
         lora.set_preamble_length(8)
         lora.set_sync_word(0x12)
         lora.set_power(22)
-        lora.receive_mode()
-
-        print("✅ LoRa Module Configured Successfully!")
+        print("✅ LoRa Module Initialized Successfully!")
         return lora
     except Exception as e:
         print(f"❌ Error configuring LoRa module: {e}")
         return None
 
-def receive_lora_packets(lora):
-    print("📡 Listening for incoming LoRa packets...")
+def scan_frequencies(lora, freq_start, freq_end, step=0.1):
+    """Scans the given frequency range for incoming packets."""
+    print(f"📡 Scanning frequencies from {freq_start} MHz to {freq_end} MHz in steps of {step} MHz...")
     try:
-        while True:
-            packet = lora.receive_packet()
-            if packet:
-                print(f"📦 Packet Received: {packet}")
-            time.sleep(1)  # Adjust based on desired polling rate
+        for freq in range(int(freq_start * 10), int(freq_end * 10), int(step * 10)):
+            frequency = freq / 10.0
+            lora.set_frequency(frequency)
+            print(f"🌐 Tuning to {frequency:.1f} MHz...")
+            lora.receive_mode()
+
+            # Wait for potential packet reception
+            start_time = time.time()
+            while time.time() - start_time < 2:  # Listen for 2 seconds per frequency
+                packet = lora.receive_packet()
+                if packet:
+                    print(f"📦 Packet Received on {frequency:.1f} MHz: {packet}")
+                    break  # Stop scanning on first detected packet
+
+            time.sleep(0.5)  # Pause briefly before moving to the next frequency
     except KeyboardInterrupt:
-        print("\n🚪 Exiting...")
+        print("\n🚪 Scanning interrupted by user.")
     finally:
+        print("📡 Frequency scanning complete.")
         lora.end()
 
 if __name__ == "__main__":
-    if detect_lora_hat():
-        lora = configure_lora()
-        if lora:
-            receive_lora_packets(lora)
+    # Define frequency range and step
+    region = input("Enter region (EU/US/ASIA): ").strip().upper()
+    if region == "EU":
+        freq_start, freq_end = 863, 870
+    elif region == "US":
+        freq_start, freq_end = 902, 928
+    elif region == "ASIA":
+        freq_start, freq_end = 433, 510
+    else:
+        print("❌ Invalid region. Using EU defaults (863–870 MHz).")
+        freq_start, freq_end = 863, 870
+
+    # Initialize and configure LoRa
+    lora = configure_lora()
+    if lora:
+        scan_frequencies(lora, freq_start, freq_end)
