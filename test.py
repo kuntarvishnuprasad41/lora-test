@@ -1,62 +1,100 @@
+import spidev
 import time
-import sx126x  # Make sure you have the correct library installed
+import RPi.GPIO as GPIO
 
-def configure_lora():
-    """Configures the LoRa module with basic settings."""
-    lora = sx126x()
+class SX1268:
+    # SX1268 Register Addresses
+    REG_VERSION = 0x42
+    REG_PACKET_CONFIG = 0x0D
+    REG_FREQUENCY = 0x08
+    
+    def __init__(self, bus=0, device=0, reset_pin=22):
+        self.reset_pin = reset_pin
+        self.spi = spidev.SpiDev()
+        self.spi.open(bus, device)
+        self.spi.max_speed_hz = 1000000
+        self.setup_gpio()
+        self.reset()
+        
+    def setup_gpio(self):
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(self.reset_pin, GPIO.OUT)
+        
+    def reset(self):
+        GPIO.output(self.reset_pin, GPIO.LOW)
+        time.sleep(0.1)
+        GPIO.output(self.reset_pin, GPIO.HIGH)
+        time.sleep(0.1)
+    
+    def read_register(self, address):
+        response = self.spi.xfer2([address & 0x7F, 0x00])
+        return response[1]
+    
+    def write_register(self, address, value):
+        self.spi.xfer2([address | 0x80, value])
+    
+    def detect_device(self):
+        try:
+            version = self.read_register(self.REG_VERSION)
+            if version:
+                print(f"✅ SX1268 LoRa Device Detected! Version: 0x{version:02X}")
+                return True
+            else:
+                print("❌ Could not detect SX1268 device")
+                return False
+        except Exception as e:
+            print(f"❌ Error detecting device: {e}")
+            return False
+    
+    def scan_frequencies(self):
+        # SX1268 frequency ranges
+        frequency_ranges = [
+            (410, 510),  # Low frequency range
+            (780, 960)   # High frequency range
+        ]
+        
+        print("Starting frequency scan...")
+        
+        for start_freq, end_freq in frequency_ranges:
+            current_freq = start_freq
+            while current_freq <= end_freq:
+                try:
+                    # Set frequency (simplified - would need actual register calculations)
+                    freq_reg_value = int((current_freq * 1000000) / 32000)
+                    self.write_register(self.REG_FREQUENCY, freq_reg_value & 0xFF)
+                    
+                    # Listen for packets
+                    print(f"Scanning {current_freq} MHz...")
+                    time.sleep(0.5)  # Listen on each frequency for 500ms
+                    
+                    # Check for received data (simplified)
+                    rssi = self.read_register(0x0E)  # Example RSSI register
+                    if rssi > 0:
+                        print(f"Signal detected at {current_freq} MHz! RSSI: -{rssi} dBm")
+                    
+                    current_freq += 1
+                except Exception as e:
+                    print(f"Error scanning frequency {current_freq} MHz: {e}")
+                    current_freq += 1
+                    continue
+    
+    def cleanup(self):
+        self.spi.close()
+        GPIO.cleanup()
+
+def main():
     try:
-        lora.begin()
-        lora.set_spreading_factor(7)
-        lora.set_bandwidth(125)
-        lora.set_coding_rate(5)
-        lora.set_preamble_length(8)
-        lora.set_sync_word(0x12)
-        lora.set_power(22)
-        print("✅ LoRa Module Initialized Successfully!")
-        return lora
-    except Exception as e:
-        print(f"❌ Error configuring LoRa module: {e}")
-        return None
-
-def scan_frequencies(lora, freq_start, freq_end, step=0.1):
-    """Scans the given frequency range for incoming packets."""
-    print(f"📡 Scanning frequencies from {freq_start} MHz to {freq_end} MHz in steps of {step} MHz...")
-    try:
-        for freq in range(int(freq_start * 10), int(freq_end * 10), int(step * 10)):
-            frequency = freq / 10.0
-            lora.set_frequency(frequency)
-            print(f"🌐 Tuning to {frequency:.1f} MHz...")
-            lora.receive_mode()
-
-            # Wait for potential packet reception
-            start_time = time.time()
-            while time.time() - start_time < 2:  # Listen for 2 seconds per frequency
-                packet = lora.receive_packet()
-                if packet:
-                    print(f"📦 Packet Received on {frequency:.1f} MHz: {packet}")
-                    break  # Stop scanning on first detected packet
-
-            time.sleep(0.5)  # Pause briefly before moving to the next frequency
+        lora = SX1268()
+        if lora.detect_device():
+            print("Beginning frequency scan...")
+            lora.scan_frequencies()
+        else:
+            print("Cannot proceed with scan - device not detected")
     except KeyboardInterrupt:
-        print("\n🚪 Scanning interrupted by user.")
+        print("\nScan interrupted by user")
     finally:
-        print("📡 Frequency scanning complete.")
-        lora.end()
+        if 'lora' in locals():
+            lora.cleanup()
 
 if __name__ == "__main__":
-    # Define frequency range and step
-    region = input("Enter region (EU/US/ASIA): ").strip().upper()
-    if region == "EU":
-        freq_start, freq_end = 863, 870
-    elif region == "US":
-        freq_start, freq_end = 902, 928
-    elif region == "ASIA":
-        freq_start, freq_end = 433, 510
-    else:
-        print("❌ Invalid region. Using EU defaults (863–870 MHz).")
-        freq_start, freq_end = 863, 870
-
-    # Initialize and configure LoRa
-    lora = configure_lora()
-    if lora:
-        scan_frequencies(lora, freq_start, freq_end)
+    main()
